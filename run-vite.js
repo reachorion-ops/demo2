@@ -8,21 +8,29 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Automatic fix for Linux NTFS / fuseblk / noexec mounts
-if (process.platform === 'linux') {
+// Automatic fix for Linux NTFS / fuseblk / noexec mounts (only when needed)
+if (process.platform === 'linux' && !process.env.VERCEL) {
   const localEsbuild = path.resolve(__dirname, 'node_modules/@esbuild/linux-x64/bin/esbuild');
-  const tmpEsbuild = path.join(os.tmpdir(), 'esbuild');
-  
-  if (fs.existsSync(tmpEsbuild)) {
-    process.env.ESBUILD_BINARY_PATH = tmpEsbuild;
-  } else if (fs.existsSync(localEsbuild)) {
+  let canExecuteDirectly = false;
+  try {
+    fs.accessSync(localEsbuild, fs.constants.X_OK);
+    canExecuteDirectly = true;
+  } catch (e) {
+    canExecuteDirectly = false;
+  }
+
+  if (!canExecuteDirectly && fs.existsSync(localEsbuild)) {
+    const tmpEsbuild = path.join(os.tmpdir(), 'esbuild');
     try {
-      fs.copyFileSync(localEsbuild, tmpEsbuild);
-      fs.chmodSync(tmpEsbuild, 0o755);
+      if (!fs.existsSync(tmpEsbuild)) {
+        fs.copyFileSync(localEsbuild, tmpEsbuild);
+        fs.chmodSync(tmpEsbuild, 0o755);
+      }
       process.env.ESBUILD_BINARY_PATH = tmpEsbuild;
-    } catch (e) {
-      // If it fails with ETXTBSY, it's already there and active
-      process.env.ESBUILD_BINARY_PATH = tmpEsbuild;
+    } catch (err) {
+      if (fs.existsSync(tmpEsbuild)) {
+        process.env.ESBUILD_BINARY_PATH = tmpEsbuild;
+      }
     }
   }
 }
